@@ -1,0 +1,87 @@
+apply plugin: 'maven'
+
+static def gitBranch() {
+    def branch = ""
+    def proc = "git rev-parse --abbrev-ref HEAD".execute()
+    proc.in.eachLine { line -> branch = line }
+    proc.err.eachLine { line -> println line }
+    proc.waitFor()
+    branch
+}
+
+def groupId = "com.example.module"
+def artifactId = "datalayer"
+def versionPrefix = "0.0.1"
+def branch = "${System.getenv("BITRISE_GIT_BRANCH")}".replaceAll("/", "-").replaceAll("_", "-")
+def versionSuffix = branch.equalsIgnoreCase("master") ? "-SNAPSHOT" : branch.equalsIgnoreCase("develop") ? "-dev-SNAPSHOT" : "-${branch}-SNAPSHOT"
+def versionTag = "${System.getenv("BITRISE_GIT_TAG")}"
+def version = "${versionPrefix}${versionSuffix}"
+if (versionTag != 'null') version = versionTag
+def username = "${System.getenv("VINID_NEXUS_USERNAME")}"
+def password = "${System.getenv("VINID_NEXUS_PASSWORD")}"
+
+task printBuildInfo {
+    doLast {
+        println "groupId=${groupId}"
+        println "artifactId=${artifactId}"
+        println "branch=${branch}"
+        println "version=${version}"
+    }
+}
+
+task exportBitriseBuildInfo(type: GradleBuild) {
+    tasks = ['exportArtifactId', 'exportBranchId', 'exportVersion']
+}
+
+task exportArtifactId(type: Exec) {
+    executable "sh"
+    args "-c", "envman add --key BUILD_ARTIFACT_ID --value \"${artifactId}\""
+}
+
+task exportBranchId(type: Exec) {
+    executable "sh"
+    args "-c", "envman add --key BUILD_BRANCH_ID --value \"${branch}\""
+}
+
+task exportVersion(type: Exec) {
+    executable "sh"
+    args "-c", "envman add --key BUILD_VERSION --value \"${version}\""
+}
+
+uploadArchives {
+    repositories {
+        mavenDeployer {
+            repository(url: "https://android-nexus.vinid.dev/repository/maven-releases/") {
+                authentication(userName: username, password: password)
+                pom.groupId = groupId
+                pom.artifactId = artifactId
+                pom.version = version
+
+                pom.whenConfigured { pom ->
+                    pom.dependencies.each { dep ->
+                        if (dep != null && dep.getVersion() == "unspecified") {
+                            dep.setGroupId(groupId)
+                            dep.setVersion(version)
+                        }
+                    }
+                }
+            }
+
+            snapshotRepository(url: "https://android-nexus.vinid.dev/repository/maven-snapshots/") {
+                authentication(userName: username, password: password)
+                pom.groupId = groupId
+                pom.artifactId = artifactId
+                pom.version = version
+
+                pom.whenConfigured { pom ->
+                    pom.dependencies.each { dep ->
+                        if (dep != null && dep.getVersion() == "unspecified") {
+                            dep.setGroupId(groupId)
+                            dep.setVersion(version)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
